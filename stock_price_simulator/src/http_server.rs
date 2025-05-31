@@ -10,13 +10,13 @@ use crate::api_interface;
 
 #[derive(Deserialize, Debug)]
 pub struct StockSimulationQueryParams {
+    pub asset_identifier: String, // To look up in config
     pub initial_price: f64,
-    pub drift: f64,
-    pub volatility: f64,
     pub days: usize,
     pub time_step_days: f64,
     pub seed: Option<u64>,
-    pub symbol: String,
+    pub drift: Option<f64>, // Optional override
+    pub volatility: Option<f64>, // Optional override
 }
 
 // --- Helper Functions ---
@@ -44,20 +44,23 @@ fn error_response(err_msg: String, status_code: StatusCode) -> HttpResponse {
 // --- API Handlers ---
 
 // GET /simulate/stock
-async fn simulate_stock_handler(
+pub async fn simulate_stock_handler( // Made pub
     params: web::Query<StockSimulationQueryParams>,
+    config: web::Data<crate::config::GlobalConfig>, // Access loaded config
 ) -> HttpResponse { // Return HttpResponse
-    match api_interface::simulate_stock(
+    match api_interface::simulate_stock_with_config(
+        &params.asset_identifier,
+        &config.into_inner(), // Get reference to GlobalConfig
         params.initial_price,
-        params.drift,
-        params.volatility,
         params.days,
         params.time_step_days,
         params.seed,
+        params.drift,
+        params.volatility,
     ) {
         Ok(time_series) => {
             let response_data = StockData {
-                symbol: params.symbol.clone(),
+                symbol: params.asset_identifier.clone(), // Use asset_identifier as symbol
                 timestamps: format_timestamps(&time_series.timestamps),
                 prices: time_series.prices,
             };
@@ -67,7 +70,7 @@ async fn simulate_stock_handler(
     }
 }
 
-use actix_web::{App, HttpServer, middleware::Logger};
+use actix_web::{App, HttpServer, middleware::Logger}; // Added middleware::Logger back
 use crate::api_models::{OptionData, FutureData, EtfData}; // Added FutureData, EtfData
 use crate::option_pricing::EuropeanOption;
 use crate::api_interface::MonteCarloEuropeanOptionInput;
@@ -76,7 +79,7 @@ use crate::etf_simulation::EtfDefinition;
 
 
 // POST /simulate/option/black_scholes
-async fn simulate_option_bs_handler(
+pub async fn simulate_option_bs_handler( // Made pub
     option_params: web::Json<EuropeanOption>, // EuropeanOption needs Deserialize
 ) -> HttpResponse { // Return HttpResponse
     // Access inner data using .0 to avoid consuming web::Json if fields are needed later,
@@ -107,7 +110,7 @@ async fn simulate_option_bs_handler(
 }
 
 // POST /simulate/option/monte_carlo
-async fn simulate_option_mc_handler(
+pub async fn simulate_option_mc_handler( // Made pub
     params: web::Json<MonteCarloEuropeanOptionInput>,
 ) -> HttpResponse {
     // Use params.0 to access the inner MonteCarloEuropeanOptionInput data
@@ -129,7 +132,7 @@ async fn simulate_option_mc_handler(
 }
 
 // POST /simulate/future
-async fn simulate_future_handler(
+pub async fn simulate_future_handler( // Made pub
     params: web::Json<FuturesContract>,
 ) -> HttpResponse {
     // api_interface::simulate_futures expects a reference
@@ -148,7 +151,7 @@ async fn simulate_future_handler(
 }
 
 // POST /simulate/etf
-async fn simulate_etf_handler(
+pub async fn simulate_etf_handler( // Made pub
     params: web::Json<EtfDefinition>,
 ) -> HttpResponse {
     // api_interface::simulate_etf expects a reference
@@ -166,13 +169,14 @@ async fn simulate_etf_handler(
 }
 
 // --- Server Setup ---
-pub async fn run_server(address: &str) -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_web=info,stock_price_simulator=info"); // Ensure RUST_LOG is set for info level for both
+pub async fn run_server(address: &str, config_data: web::Data<crate::config::GlobalConfig>) -> std::io::Result<()> {
+    std::env::set_var("RUST_LOG", "actix_web=info,stock_price_simulator=info");
     env_logger::init();
 
     HttpServer::new(move || {
         App::new()
-            .wrap(Logger::default())
+            .app_data(config_data.clone()) // Share config with handlers
+            .wrap(Logger::default()) // Re-add Logger
             .route("/simulate/stock", web::get().to(simulate_stock_handler))
             .route("/simulate/option/black_scholes", web::post().to(simulate_option_bs_handler))
             .route("/simulate/option/monte_carlo", web::post().to(simulate_option_mc_handler))

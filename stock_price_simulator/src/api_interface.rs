@@ -25,6 +25,46 @@ pub fn simulate_stock(
     )
 }
 
+pub fn simulate_stock_with_config(
+    asset_identifier: &str,
+    config: &crate::config::GlobalConfig,
+    initial_price: f64,
+    days: usize, // Number of simulation steps/days
+    time_step_days: f64, // Duration of each step in days
+    seed: Option<u64>, // Seed for this specific simulation run, potentially overriding config.random_seed
+    override_drift: Option<f64>,
+    override_volatility: Option<f64>,
+) -> Result<TimeSeries> {
+    // Find the model configuration for the given asset_identifier
+    let model_config = config.asset_models.as_ref() // Get Option<&Vec<AssetModelConfig>>
+        .ok_or_else(|| anyhow::anyhow!("No asset_models configured in GlobalConfig."))?
+        .iter()
+        .find(|m| m.asset_type == "stock" && m.asset_identifier_pattern == asset_identifier)
+        .ok_or_else(|| anyhow::anyhow!("No model config found for stock identifier: {}", asset_identifier))?;
+
+    match model_config.default_model {
+        crate::config::ModelType::GeometricBrownianMotion => {
+            if let Some(gbm_params_from_config) = &model_config.parameters.gbm {
+                let drift = override_drift.unwrap_or(gbm_params_from_config.drift);
+                let volatility = override_volatility.unwrap_or(gbm_params_from_config.volatility);
+
+                crate::stock_simulation::StockSimulator::simulate_stock_price(
+                    initial_price,
+                    drift,
+                    volatility,
+                    days,
+                    time_step_days,
+                    seed, // Use the per-simulation seed
+                )
+            } else {
+                Err(anyhow::anyhow!("GBM parameters not configured for identifier: {}", asset_identifier))
+            }
+        }
+        // Add other model types here later, e.g.
+        // crate::config::ModelType::Heston => Err(anyhow::anyhow!("Heston model not yet implemented for stocks via config.")),
+    }
+}
+
 // --- Option Pricing ---
 
 // Black-Scholes

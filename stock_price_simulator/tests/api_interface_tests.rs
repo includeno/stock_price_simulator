@@ -1,16 +1,17 @@
 use stock_price_simulator::api_interface::*;
 use stock_price_simulator::{ // These are re-exported from lib.rs
     OptionType, FuturesContract, EtfDefinition, EtfConstituent,
-    MonteCarloEuropeanOptionInput
-    // EuropeanOption and TimeSeries are not directly instantiated here, types are inferred
+    MonteCarloEuropeanOptionInput,
 };
-// anyhow::Result is not needed as function results are already anyhow::Result
+use stock_price_simulator::config::{
+    GlobalConfig, AssetModelConfig, ModelType, ModelParameters, GeometricBrownianMotionParams
+};
 
 const TEST_DAYS: usize = 5;
 const TEST_TIME_STEP: f64 = 1.0;
 
 #[test]
-fn test_simulate_stock_api() {
+fn test_simulate_stock_direct_api() { // Renamed from test_simulate_stock_api
     let result = simulate_stock(100.0, 0.05, 0.2, TEST_DAYS, TEST_TIME_STEP, Some(123));
     assert!(result.is_ok());
     let ts = result.unwrap();
@@ -21,6 +22,102 @@ fn test_simulate_stock_api() {
     let err_result = simulate_stock(-100.0, 0.05, 0.2, TEST_DAYS, TEST_TIME_STEP, Some(123));
     assert!(err_result.is_err());
 }
+
+// Helper to create a simple GlobalConfig for stock tests
+fn create_test_global_config() -> GlobalConfig {
+    GlobalConfig {
+        random_seed: Some(12345),
+        simulation_period_days: 252,
+        time_step_minutes: 1440,
+        asset_models: Some(vec![
+            AssetModelConfig {
+                asset_type: "stock".to_string(),
+                asset_identifier_pattern: "TEST_STOCK_1".to_string(),
+                default_model: ModelType::GeometricBrownianMotion,
+                parameters: ModelParameters {
+                    gbm: Some(GeometricBrownianMotionParams { drift: 0.05, volatility: 0.2 }),
+                },
+            },
+            AssetModelConfig {
+                asset_type: "stock".to_string(),
+                asset_identifier_pattern: "TEST_STOCK_NO_GBM".to_string(),
+                default_model: ModelType::GeometricBrownianMotion,
+                parameters: ModelParameters { gbm: None }, // Missing GBM params
+            },
+        ]),
+    }
+}
+
+#[test]
+fn test_simulate_stock_with_config_success() {
+    let config = create_test_global_config();
+    let result = simulate_stock_with_config(
+        "TEST_STOCK_1",
+        &config,
+        100.0,
+        TEST_DAYS,
+        TEST_TIME_STEP,
+        Some(456),
+        None, None, // No overrides
+    );
+    assert!(result.is_ok(), "Simulation failed: {:?}", result.err());
+    let ts = result.unwrap();
+    assert_eq!(ts.prices.len(), TEST_DAYS);
+    assert_eq!(ts.timestamps.len(), TEST_DAYS);
+}
+
+#[test]
+fn test_simulate_stock_with_config_overrides() {
+    let config = create_test_global_config();
+    let override_drift = 0.10;
+    let override_volatility = 0.30;
+    let result = simulate_stock_with_config(
+        "TEST_STOCK_1",
+        &config,
+        100.0,
+        TEST_DAYS,
+        TEST_TIME_STEP,
+        Some(789),
+        Some(override_drift),
+        Some(override_volatility),
+    );
+    assert!(result.is_ok(), "Simulation with overrides failed: {:?}", result.err());
+    // Further checks could involve comparing output if we knew exact impact of overrides,
+    // but for now, success is sufficient.
+}
+
+#[test]
+fn test_simulate_stock_with_config_asset_not_found() {
+    let config = create_test_global_config();
+    let result = simulate_stock_with_config(
+        "NON_EXISTENT_STOCK",
+        &config,
+        100.0,
+        TEST_DAYS,
+        TEST_TIME_STEP,
+        Some(111),
+        None, None,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("No model config found for stock identifier: NON_EXISTENT_STOCK"));
+}
+
+#[test]
+fn test_simulate_stock_with_config_gbm_params_missing() {
+    let config = create_test_global_config();
+    let result = simulate_stock_with_config(
+        "TEST_STOCK_NO_GBM",
+        &config,
+        100.0,
+        TEST_DAYS,
+        TEST_TIME_STEP,
+        Some(222),
+        None, None,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("GBM parameters not configured for identifier: TEST_STOCK_NO_GBM"));
+}
+
 
 #[test]
 fn test_price_european_option_black_scholes_api() {
