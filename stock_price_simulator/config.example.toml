@@ -1,0 +1,38 @@
+random_seed = 12345
+simulation_period_days = 252 # Default simulation length for general purposes
+time_step_minutes = 1440     # Default granularity, e.g., 1440 for daily steps if period is in days.
+
+# Asset-specific model configurations
+# This section is optional in GlobalConfig, but good to have examples.
+[[asset_models]]
+asset_type = "stock" # General category (e.g., "stock", "option_index", "future_commodity")
+asset_identifier_pattern = "DEFAULT_STOCK" # Key for lookup, can be a specific symbol or a category name
+default_model = "GeometricBrownianMotion" # Enum variant for the model type
+[asset_models.parameters.gbm] # Corresponds to ModelParameters.gbm
+drift = 0.05      # Annualized drift
+volatility = 0.2  # Annualized volatility
+
+[[asset_models]]
+asset_type = "stock"
+asset_identifier_pattern = "TECH_STOCK_HIGH_VOL"
+default_model = "GeometricBrownianMotion"
+[asset_models.parameters.gbm]
+drift = 0.08
+volatility = 0.4
+
+[[asset_models]]
+asset_type = "stock"
+asset_identifier_pattern = "STABLE_STOCK_LOW_VOL"
+default_model = "GeometricBrownianMotion"
+[asset_models.parameters.gbm]
+drift = 0.03
+volatility = 0.1
+
+# Example for a different asset type (conceptual, not yet used by simulator)
+# [[asset_models]]
+# asset_type = "index_option"
+# asset_identifier_pattern = "SPX_MONTHLY"
+# default_model = "BlackScholes" # Assuming a future ModelType::BlackScholes
+# [asset_models.parameters.black_scholes_market_params] # Hypothetical future parameter struct
+# dividend_yield = 0.015
+# # Volatility and risk-free rate might be sourced dynamically or from global settings for options
